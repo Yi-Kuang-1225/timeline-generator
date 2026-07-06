@@ -157,8 +157,8 @@
             const container = document.getElementById('infographic-container');
             const currentTitle = document.getElementById('mainTitleInput').value || ' ';
             
-            // 初始化容器與大標題
-            container.innerHTML = `
+            // 戰術重構：在幕後將 HTML 組合為單一字串，避免「幽靈節點 (Detached Nodes)」Bug
+            let fullHtml = `
                 <div class="w-full text-center mb-10">
                     <h2 id="displayMainTitle" class="text-3xl font-black text-[#153c5e] tracking-widest drop-shadow-sm">${currentTitle}</h2>
                 </div>
@@ -168,8 +168,7 @@
 
             chunks.forEach((chunk, index) => {
                 const isLastRow = index === chunks.length - 1;
-                // 產生每一列的獨立框架
-                let rowHtml = `
+                fullHtml += `
                     <div class="relative w-full flex justify-between items-stretch min-h-[380px] ${isLastRow ? '' : 'mb-16'}">
                         <div class="timeline-axis"></div>
                         <div class="w-full flex justify-between items-center relative z-10 px-4">
@@ -180,7 +179,7 @@
                     const htmlParse = text => (text||"").replace(/\n/g, '<br>').replace(/\*(.*?)\*/g, '<span class="highlight-red">$1</span>');
                     const showBottomLine = item.hasBottomConnector !== false && item.bottomDesc && item.bottomDesc.trim() !== "";
 
-                    rowHtml += `
+                    fullHtml += `
                         <div class="flex flex-col items-center flex-1 z-10 w-40">
                             <div class="flex flex-col items-center justify-end h-[160px] text-center w-full">
                                 <div class="text-[#4a86c8] font-bold text-xl tracking-wider whitespace-nowrap mb-1">${item.title || ''}</div>
@@ -201,9 +200,11 @@
                     `;
                 });
 
-                rowHtml += `</div></div>`;
-                container.innerHTML += rowHtml;
+                fullHtml += `</div></div>`;
             });
+            
+            // 一次性部署至 DOM，維持陣型乾淨與穩定
+            container.innerHTML = fullHtml;
         }
 
         // --- Excel 匯入 ---
@@ -247,13 +248,24 @@
         // --- 匯出圖片 ---
         function exportToImage() {
             const target = document.getElementById('infographic-container');
-            html2canvas(target, { scale: 2, backgroundColor: '#f5f6f8' }).then(canvas => {
-                const link = document.createElement('a');
-                // 下載檔名與標題連動
-                link.download = `${document.getElementById('mainTitleInput').value || '進度匯報圖'}_${new Date().getTime()}.png`;
-                link.href = canvas.toDataURL();
-                link.click();
-            });
+            
+            // 戰術加強：延遲 150 毫秒，確保畫面完全安頓、無任何殘留節點後再啟動截圖引擎
+            setTimeout(() => {
+                html2canvas(target, { 
+                    scale: 2, 
+                    backgroundColor: '#f5f6f8',
+                    logging: false,
+                    useCORS: true // 開啟跨域防護
+                }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = `${document.getElementById('mainTitleInput').value || '進度匯報圖'}_${new Date().getTime()}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                }).catch(err => {
+                    console.error("圖片截取失敗:", err);
+                    alert("匯出圖片時遭遇系統阻礙，請確認畫面是否已完全載入。");
+                });
+            }, 150);
         }
 
         // --- 匯出 PPTX (動態分頁版) ---
