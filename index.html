@@ -118,25 +118,35 @@
         }
 
         function formatDisplayDate(rawDate, overrideStr) {
-            if (overrideStr) return { year: String(rawDate).substring(0,4), display: overrideStr };
-            if (!rawDate) return { year: "", display: "" };
+            if (overrideStr) return { year: String(rawDate).substring(0,4), display: String(overrideStr) };
+            if (!rawDate && rawDate !== 0) return { year: "", display: "" };
             
-            rawDate = String(rawDate).trim();
-            // 隱藏戰術：自動適應民國年格式 (如 115.1.22)
-            if (rawDate.match(/^\d{2,3}\.\d{1,2}\.\d{1,2}$/)) {
-                let parts = rawDate.split('.');
-                return { year: parts[0], display: `${parts[1].padStart(2, '0')}/${parts[2].padStart(2, '0')}` };
+            let dateStr = String(rawDate).trim();
+            
+            // 隱藏戰術：自動適應民國年格式 (強化版：支援單一日期 115.1.22 或 區間 115.2.4-13)
+            let rocMatch = dateStr.match(/^(\d{2,3})\.(.*)$/);
+            if (rocMatch) {
+                let year = rocMatch[1];
+                let rest = rocMatch[2]; 
+                let display = rest.replace(/\./g, '/'); 
+                
+                // 嘗試補零優化視覺 (例如 2/4-13 轉為 02/04-13)
+                let parts = display.split('-');
+                let formattedParts = parts.map(p => {
+                    return p.split('/').map(sp => sp.padStart(2, '0')).join('/');
+                });
+                return { year: year, display: formattedParts.join('-') };
             }
 
             try {
-                const dateObj = new Date(rawDate);
-                if (isNaN(dateObj.getTime())) return { year: rawDate, display: "" };
+                const dateObj = new Date(dateStr);
+                if (isNaN(dateObj.getTime())) return { year: dateStr, display: "" };
                 return { 
                     year: dateObj.getFullYear(), 
                     display: `${String(dateObj.getMonth() + 1).padStart(2, '0')}/${String(dateObj.getDate()).padStart(2, '0')}` 
                 };
             } catch (e) {
-                return { year: rawDate, display: "" };
+                return { year: dateStr, display: "" };
             }
         }
 
@@ -176,8 +186,9 @@
 
                 chunk.forEach(item => {
                     const dateInfo = formatDisplayDate(item.dateRaw, item.dateStr);
-                    const htmlParse = text => (text||"").replace(/\n/g, '<br>').replace(/\*(.*?)\*/g, '<span class="highlight-red">$1</span>');
-                    const showBottomLine = item.hasBottomConnector !== false && item.bottomDesc && item.bottomDesc.trim() !== "";
+                    // 戰術防禦：強制轉型為 String，防止 Excel 數字型態導致 replace 崩潰
+                    const htmlParse = text => String(text || "").replace(/\n/g, '<br>').replace(/\*(.*?)\*/g, '<span class="highlight-red">$1</span>');
+                    const showBottomLine = item.hasBottomConnector !== false && item.bottomDesc && String(item.bottomDesc).trim() !== "";
 
                     fullHtml += `
                         <div class="flex flex-col items-center flex-1 z-10 w-40">
@@ -278,7 +289,8 @@
 
             function parseTextForPPTX(text) {
                 if (!text) return [{ text: "" }];
-                let lines = text.split(/\n|<br>/);
+                // 戰術防禦：強制轉型為 String，防止 Excel 數字型態導致 split 崩潰
+                let lines = String(text).split(/\n|<br>/);
                 let formattingArray = [];
                 
                 lines.forEach((line, index) => {
@@ -335,14 +347,14 @@
                     const colWidth = gap > 1.8 || nodeCount === 1 ? 1.8 : gap; 
 
                     // A1. 標題
-                    slide.addText(item.title, {
+                    slide.addText(String(item.title || " "), {
                         x: nodeX - colWidth/2, y: 0.9, w: colWidth, h: 0.3,
                         align: "center", fontFace: "Microsoft JhengHei", fontSize: 16, bold: true, color: "4A86C8"
                     });
 
                     // A2. 標籤
                     if(item.tag) {
-                        slide.addText(item.tag, {
+                        slide.addText(String(item.tag), {
                             x: nodeX - 0.45, y: 1.3, w: 0.9, h: 0.25,
                             align: "center", fontFace: "Microsoft JhengHei", fontSize: 10, bold: true, color: "8A5A44",
                             fill: { color: "FDECDB" }, line: { color: "F4D1BB", width: 1 }, shape: pptx.ShapeType.roundRect
@@ -366,7 +378,7 @@
                     });
 
                     // C. 下半部
-                    const showBottomLine = item.hasBottomConnector !== false && item.bottomDesc && item.bottomDesc.trim() !== "";
+                    const showBottomLine = item.hasBottomConnector !== false && item.bottomDesc && String(item.bottomDesc).trim() !== "";
                     if (showBottomLine) {
                         slide.addShape(pptx.ShapeType.rect, {
                             x: nodeX - 0.01, y: centerY + 0.1, w: 0.02, h: 0.4, fill: { color: primaryColor }
@@ -374,13 +386,13 @@
                     }
 
                     // C1. 年份
-                    slide.addText(dateInfo.year, {
+                    slide.addText(String(dateInfo.year || ""), {
                         x: nodeX - colWidth/2, y: 3.5, w: colWidth, h: 0.3,
                         align: "center", fontFace: "Microsoft JhengHei", fontSize: 14, bold: true, color: "4A86C8"
                     });
 
                     // C2. 月份日期
-                    slide.addText(dateInfo.display, {
+                    slide.addText(String(dateInfo.display || ""), {
                         x: nodeX - colWidth/2, y: 3.8, w: colWidth, h: 0.2,
                         align: "center", fontFace: "Microsoft JhengHei", fontSize: 12, bold: true, color: "000000"
                     });
