@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高階進度匯報圖產生器 (支援可編輯 PPTX)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- SheetJS 解析 Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    
+    <!-- html2canvas 匯出圖片 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- PptxGenJS 匯出可編輯 PPTX -->
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+
+        body {
+            font-family: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        #infographic-container {
+            background-color: #f5f6f8; 
+            min-width: 1200px;
+            position: relative;
+        }
+
+        /* 網頁版 CSS 樣式 (不影響 PPTX 匯出) */
+        .timeline-axis {
+            position: absolute; top: 50%; left: 2%; right: 2%; height: 12px;
+            background-color: #335069; transform: translateY(-50%); border-radius: 6px 0 0 6px;
+        }
+        .timeline-axis::after {
+            content: ''; position: absolute; right: -20px; top: 50%; transform: translateY(-50%);
+            border-top: 15px solid transparent; border-bottom: 15px solid transparent; border-left: 25px solid #335069;
+        }
+        .connector-line-top { width: 2px; height: 25px; background-color: #335069; margin: 8px auto 0 auto; }
+        .connector-line-bottom { width: 2px; height: 25px; background-color: #335069; margin: 0 auto 8px auto; }
+        .timeline-dot { width: 14px; height: 14px; background-color: #153c5e; border-radius: 50%; position: relative; z-index: 10; }
+        .highlight-red { color: #d82828; font-weight: 700; }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center py-8 px-4">
+
+    <div class="w-full max-w-7xl mb-6 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div class="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <svg class="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    高階進度匯報圖產生器 <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded ml-2">PRO</span>
+                </h1>
+                
+                <div class="mt-4 flex items-center gap-3">
+                    <label class="text-sm font-bold text-gray-700 whitespace-nowrap bg-gray-100 py-1 px-2 rounded">設定圖表標題</label>
+                    <input type="text" id="mainTitleInput" value="國家淨零排放戰略進程" class="flex-1 md:w-80 border border-gray-300 rounded px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-shadow" oninput="updateMainTitle(this.value)">
+                </div>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-3">
+                <label for="excelUpload" class="cursor-pointer bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 py-2 px-4 rounded-lg transition-colors font-medium shadow-sm flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    匯入 Excel
+                </label>
+                <input type="file" id="excelUpload" accept=".xlsx, .xls, .csv" class="hidden">
+                
+                <button onclick="exportToImage()" class="bg-gray-800 hover:bg-gray-900 text-white py-2 px-4 rounded-lg transition-colors font-medium shadow-sm flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    下載圖片檔 (PNG)
+                </button>
+
+                <button onclick="exportToPPTX()" class="bg-[#d04423] hover:bg-[#b0391d] text-white py-2 px-4 rounded-lg transition-colors font-medium shadow-sm flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-8 14H7v-2h4v2zm2-4H7v-2h6v2zm4-4H7V7h10v2z"/></svg>
+                    匯出可編輯簡報 (PPTX)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 網頁預覽區 (圖片截圖也是截這塊) -->
+    <div class="w-full max-w-7xl overflow-x-auto hide-scroll rounded-xl shadow-lg border border-gray-200 bg-white">
+        <div id="infographic-container" class="pt-10 pb-16 px-10 flex flex-col">
+            <div class="w-full text-center mb-10">
+                <h2 id="displayMainTitle" class="text-3xl font-black text-[#153c5e] tracking-widest drop-shadow-sm">國家淨零排放戰略進程</h2>
+            </div>
+            <div id="timeline-wrapper" class="relative w-full flex justify-between items-stretch min-h-[400px]">
+                <div class="timeline-axis"></div>
+                <div id="nodes-container" class="w-full flex justify-between items-center relative z-10 px-4"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 儲存當前資料供 PPTX 匯出使用
+        let globalTimelineData = [];
+
+        const defaultData = [
+            { title: "淨零路徑", tag: "政府發布", topDesc: "臺灣2050\n淨零排放路徑\n及策略總說明", dateRaw: "2022-03-30", bottomDesc: "" },
+            { title: "關鍵戰略", tag: "政府發布", topDesc: "淨零排放之階段目標\n及*12項關鍵戰略*", dateRaw: "2022-12-28", bottomDesc: "" },
+            { title: "目標入法", tag: "政府發布", topDesc: "氣候變遷因應法\n納入*2050淨零排放目標*", dateRaw: "2023-02-15", bottomDesc: "" },
+            { title: "國家希望工程", tag: "總統宣示", topDesc: "2050淨零轉型\n五大策略", dateRaw: "2024-05-20", bottomDesc: "提出製造部門\n減碳旗艦計畫\n(加強減碳力道)", hasBottomConnector: true },
+            { title: "減碳新目標", tag: "政府發布", topDesc: "臺灣總體減碳\n行動計劃", dateRaw: "2025-01-23", bottomDesc: "製造部門\n減碳行動", hasBottomConnector: true },
+            { title: "階段管制", tag: "政府發布", topDesc: "第三期階段\n管制目標", dateRaw: "2025-02-07", bottomDesc: "製造部門\n行動方案", hasBottomConnector: true },
+            { title: "公正轉型", tag: "國發會", topDesc: "國家公正轉型\n行動計劃", dateRaw: "2026-06", dateStr: "06月(預計)", bottomDesc: "製造部門\n公正轉型\n行動方案", hasBottomConnector: false }
+        ];
+
+        window.onload = () => renderTimeline(defaultData);
+
+        function updateMainTitle(text) {
+            document.getElementById('displayMainTitle').innerText = text || ' ';
+        }
+
+        function formatDisplayDate(rawDate, overrideStr) {
+            if (overrideStr) return { year: rawDate.substring(0,4), display: overrideStr };
+            try {
+                const dateObj = new Date(rawDate);
+                if (isNaN(dateObj.getTime())) return { year: rawDate, display: "" };
+                return { 
+                    year: dateObj.getFullYear(), 
+                    display: `${String(dateObj.getMonth() + 1).padStart(2, '0')}/${String(dateObj.getDate()).padStart(2, '0')}` 
+                };
+            } catch (e) {
+                return { year: rawDate, display: "" };
+            }
+        }
+
+        // --- 網頁預覽渲染 ---
+        function renderTimeline(dataArray) {
+            globalTimelineData = dataArray; // 存到全域變數供 PPTX 使用
+            const container = document.getElementById('nodes-container');
+            container.innerHTML = ''; 
+
+            dataArray.forEach(item => {
+                const dateInfo = formatDisplayDate(item.dateRaw, item.dateStr);
+                
+                // 網頁版 HTML 解析器
+                const htmlParse = text => (text||"").replace(/\n/g, '<br>').replace(/\*(.*?)\*/g, '<span class="highlight-red">$1</span>');
+                
+                const showBottomLine = item.hasBottomConnector !== false && item.bottomDesc && item.bottomDesc.trim() !== "";
+
+                container.innerHTML += `
+                    <div class="flex flex-col items-center flex-1 z-10 w-40">
+                        <div class="flex flex-col items-center justify-end h-[160px] text-center w-full">
+                            <div class="text-[#4a86c8] font-bold text-xl tracking-wider whitespace-nowrap mb-1">${item.title || ''}</div>
+                            ${item.tag ? `<div class="bg-[#fdecdb] text-[#8a5a44] font-bold rounded-full px-4 py-0.5 text-sm my-1 tracking-widest whitespace-nowrap border border-[#f4d1bb]">${item.tag}</div>` : ''}
+                            <div class="text-[15px] font-medium text-gray-800 leading-tight mt-2 whitespace-nowrap">${htmlParse(item.topDesc)}</div>
+                            <div class="connector-line-top"></div>
+                        </div>
+                        <div class="h-[20px] flex items-center justify-center relative w-full">
+                            <div class="timeline-dot"></div>
+                        </div>
+                        <div class="flex flex-col items-center justify-start h-[160px] text-center w-full mt-1">
+                            ${showBottomLine ? `<div class="connector-line-bottom"></div>` : `<div class="h-[25px] mb-2"></div>`}
+                            <div class="text-[#4a86c8] font-bold text-lg tracking-widest leading-none">${dateInfo.year}</div>
+                            <div class="text-gray-900 font-bold text-[15px] mt-1 tracking-wider">${dateInfo.display}</div>
+                            ${item.bottomDesc ? `<div class="text-[15px] font-medium text-gray-700 leading-tight mt-3 whitespace-nowrap">${htmlParse(item.bottomDesc)}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        // --- Excel 匯入 ---
+        document.getElementById('excelUpload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const workbook = XLSX.read(new Uint8Array(e.target.result), {type: 'array'});
+                    const rawJson = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                    
+                    const processedData = rawJson.map(row => {
+                        let dateRaw = row['日期'] || row['Date'] || '';
+                        if (typeof dateRaw === 'number') {
+                            const d = XLSX.SSF.parse_date_code(dateRaw);
+                            dateRaw = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+                        }
+                        return {
+                            title: row['標題'] || row['Title'] || row['事件'] || '',
+                            tag: row['標籤'] || row['Tag'] || row['類型'] || '',
+                            topDesc: row['上方說明'] || row['說明'] || row['Description'] || '',
+                            dateRaw: dateRaw,
+                            bottomDesc: row['下方說明'] || row['備註'] || '',
+                            dateStr: row['自訂日期顯示'] || null
+                        };
+                    });
+                    if (processedData.length > 0) renderTimeline(processedData);
+                    else alert("找不到有效資料");
+                } catch (error) { alert("解析失敗"); }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // --- 匯出圖片 ---
+        function exportToImage() {
+            const target = document.getElementById('infographic-container');
+            html2canvas(target, { scale: 2, backgroundColor: '#f5f6f8' }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `進度匯報圖_${new Date().getTime()}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+            });
+        }
+
+        // --- STREAMING_CHUNK:重頭戲！匯出為原生的、可編輯的 PPTX 簡報檔 ---
+        function exportToPPTX() {
+            // 初始化 PptxGenJS (16:9 比例)
+            let pptx = new PptxGenJS();
+            pptx.layout = 'LAYOUT_16x9'; // 寬 10 inches, 高 5.625 inches
+            
+            let slide = pptx.addSlide();
+            slide.background = { color: "F5F6F8" };
+
+            // 1. 繪製大標題
+            const mainTitle = document.getElementById('mainTitleInput').value;
+            slide.addText(mainTitle, {
+                x: 0, y: 0.3, w: "100%", h: 0.6,
+                align: "center", fontFace: "Microsoft JhengHei", fontSize: 28, bold: true, color: "153C5E", charSpacing: 3
+            });
+
+            // 2. 繪製主時間軸 (中心線)
+            const centerY = 3.0;
+            const startX = 0.5;
+            const endX = 9.5;
+            const lineThickness = 10;
+            const primaryColor = "335069";
+            
+            // 軸線主體
+            slide.addShape(pptx.ShapeType.rect, {
+                x: startX, y: centerY - 0.05, w: endX - startX - 0.2, h: 0.1, fill: { color: primaryColor }
+            });
+            // 軸線箭頭
+            slide.addShape(pptx.ShapeType.rightArrow, {
+                x: endX - 0.25, y: centerY - 0.15, w: 0.3, h: 0.3, fill: { color: primaryColor }, line: { type: 'none' }
+            });
+
+            // --- 文字解析工具 (將 *文字* 轉為 PPTX 支援的紅色粗體陣列) ---
+            function parseTextForPPTX(text) {
+                if (!text) return [{ text: "" }];
+                let lines = text.split(/\n|<br>/);
+                let formattingArray = [];
+                
+                lines.forEach((line, index) => {
+                    let parts = line.split(/(\*[^*]+\*)/g);
+                    parts.forEach(part => {
+                        if (part.startsWith('*') && part.endsWith('*')) {
+                            formattingArray.push({ text: part.slice(1, -1), options: { color: "D82828", bold: true } });
+                        } else if (part !== "") {
+                            formattingArray.push({ text: part, options: { color: "333333" } });
+                        }
+                    });
+                    if (index < lines.length - 1) formattingArray.push({ text: "\n" }); // 換行
+                });
+                return formattingArray;
+            }
+
+            // 3. 繪製所有節點 (根據資料數量計算間距)
+            const nodeCount = globalTimelineData.length;
+            const gap = (endX - startX - 1) / (nodeCount > 1 ? nodeCount - 1 : 1);
+
+            globalTimelineData.forEach((item, index) => {
+                const nodeX = startX + 0.5 + (index * gap);
+                const dateInfo = formatDisplayDate(item.dateRaw, item.dateStr);
+                const colWidth = gap > 1.8 ? 1.8 : gap; // 避免文字框過寬
+
+                // A. 上半部
+                // A1. 標題 (Title)
+                slide.addText(item.title, {
+                    x: nodeX - colWidth/2, y: 0.9, w: colWidth, h: 0.3,
+                    align: "center", fontFace: "Microsoft JhengHei", fontSize: 16, bold: true, color: "4A86C8"
+                });
+
+                // A2. 標籤 (Tag - 加上圓角背景框)
+                if(item.tag) {
+                    slide.addText(item.tag, {
+                        x: nodeX - 0.45, y: 1.3, w: 0.9, h: 0.25,
+                        align: "center", fontFace: "Microsoft JhengHei", fontSize: 10, bold: true, color: "8A5A44",
+                        fill: { color: "FDECDB" }, line: { color: "F4D1BB", width: 1 }, shape: pptx.ShapeType.roundRect
+                    });
+                }
+
+                // A3. 上方說明 (Top Desc)
+                slide.addText(parseTextForPPTX(item.topDesc), {
+                    x: nodeX - colWidth/2, y: 1.6, w: colWidth, h: 0.8,
+                    align: "center", fontFace: "Microsoft JhengHei", fontSize: 11, lineSpacing: 14
+                });
+
+                // A4. 上連接線
+                slide.addShape(pptx.ShapeType.rect, {
+                    x: nodeX - 0.01, y: 2.5, w: 0.02, h: 0.4, fill: { color: primaryColor }
+                });
+
+                // B. 軸心點
+                slide.addShape(pptx.ShapeType.ellipse, {
+                    x: nodeX - 0.08, y: centerY - 0.08, w: 0.16, h: 0.16, fill: { color: "153C5E" }
+                });
+
+                // C. 下半部
+                const showBottomLine = item.hasBottomConnector !== false && item.bottomDesc && item.bottomDesc.trim() !== "";
+                
+                if (showBottomLine) {
+                    // 下連接線
+                    slide.addShape(pptx.ShapeType.rect, {
+                        x: nodeX - 0.01, y: centerY + 0.1, w: 0.02, h: 0.4, fill: { color: primaryColor }
+                    });
+                }
+
+                // C1. 年份
+                slide.addText(dateInfo.year, {
+                    x: nodeX - colWidth/2, y: 3.5, w: colWidth, h: 0.3,
+                    align: "center", fontFace: "Microsoft JhengHei", fontSize: 14, bold: true, color: "4A86C8"
+                });
+
+                // C2. 月份日期
+                slide.addText(dateInfo.display, {
+                    x: nodeX - colWidth/2, y: 3.8, w: colWidth, h: 0.2,
+                    align: "center", fontFace: "Microsoft JhengHei", fontSize: 12, bold: true, color: "000000"
+                });
+
+                // C3. 下方說明 (Bottom Desc)
+                if (item.bottomDesc) {
+                    slide.addText(parseTextForPPTX(item.bottomDesc), {
+                        x: nodeX - colWidth/2, y: 4.1, w: colWidth, h: 0.8,
+                        align: "center", fontFace: "Microsoft JhengHei", fontSize: 11, lineSpacing: 14
+                    });
+                }
+            });
+
+            // 4. 觸發下載
+            pptx.writeFile({ fileName: `戰略進程匯報_${new Date().getTime()}.pptx` });
+        }
+    </script>
+</body>
+</html>
